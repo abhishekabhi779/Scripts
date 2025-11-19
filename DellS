@@ -1,0 +1,277 @@
+Sub SalesQuote1()
+
+    Dim ws As Worksheet
+    Dim newWS As Worksheet
+    Dim lastRow As Long
+    Dim lastRowH As Long
+    Dim endRowt As Long
+    Dim endRow As Long
+    Dim startRow As Long
+    Dim copiedData As Range
+    Dim newSheetName As String
+    Dim i As Long
+    Dim lastCol As Long
+    Dim margin As Double
+    Dim cell As Range
+    Dim descCell As Range
+
+    
+    
+
+    ' Set the source worksheet
+    Set ws = ActiveSheet
+
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+
+    ' Find the last row in column B
+    lastRow = ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+
+    ' Set the end row
+    endRow = lastRow - 7
+
+    ' Find the start row by locating "Product Details"
+    startRow = 0
+    For i = 1 To lastRow
+        If ws.Cells(i, "B").Value = "Product Details" Then
+            startRow = i
+            Exit For
+        End If
+    Next i
+
+    ' Validate rows
+    If startRow = 0 Or endRow <= startRow Then
+        MsgBox "Start row or end row not found. Please check the data in the original sheet.", vbCritical
+        GoTo Cleanup
+    End If
+
+    ' Get the new sheet name from cell D11
+    newSheetName = ws.Cells(11, "D").Value
+    If newSheetName = "" Then
+        MsgBox "Cell D11 is empty. Please enter a sheet name.", vbCritical
+        GoTo Cleanup
+    End If
+    ' === Extract List Price and Unit Price from Pricing Summary ===
+    Dim pricingStartRow As Long
+    Dim pricingEndRow As Long
+    Dim listPriceCol As Long, unitpricecol As Long
+    Dim listPrices As Collection, unitPrices As Collection
+    Set listPrices = New Collection
+    Set unitPrices = New Collection
+    
+    ' Find "Pricing Summary" row
+    For i = 1 To ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+        If Trim(ws.Cells(i, "B").Value) = "Pricing Summary" Then
+            pricingStartRow = i
+            Exit For
+        End If
+    Next i
+    
+    ' Adjust to header row
+    Dim headerRow As Long
+    headerRow = pricingStartRow + 2
+    
+    ' Find "List Price" column in header row
+    For i = 1 To ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+        If Trim(ws.Cells(headerRow, i).Value) = "List Price" Then
+            listPriceCol = i
+            unitpricecol = i + 1 ' Assuming Unit Price is next to List Price
+            Exit For
+        End If
+    Next i
+    
+    ' Collect List Price and Unit Price values
+    If listPriceCol > 0 Then
+        Dim startDataRow As Long, endDataRow As Long
+        startDataRow = headerRow + 1
+        endDataRow = ws.Cells(startDataRow, listPriceCol).End(xlDown).Row
+    
+        For i = startDataRow To endDataRow
+            If IsNumeric(ws.Cells(i, listPriceCol).Value) Then
+                listPrices.Add ws.Cells(i, listPriceCol).Value
+            End If
+            If IsNumeric(ws.Cells(i, unitpricecol).Value) Then
+                unitPrices.Add ws.Cells(i, unitpricecol).Value
+            End If
+        Next i
+    End If
+   
+
+    lastCol = ws.Cells.Find(What:="*", SearchOrder:=xlByColumns, SearchDirection:=xlPrevious).Column
+    ' Copy the data range
+    Set copiedData = ws.Range(ws.Cells(startRow + 2, 1), ws.Cells(endRow, lastCol))
+    
+    ' Add a new worksheet and paste the data
+    Set newWS = Sheets.Add(After:=ws)
+    copiedData.Copy Destination:=newWS.Range("A16")
+    
+    'Set tblRange = newWs.Range("A1").Resize(copiedData.Rows.Count, copiedData.Columns.Count - 3)
+    
+    Set tblRange = newWS.Range(newWS.Cells(16, 1), newWS.Cells(16 + copiedData.Rows.Count - 1, copiedData.Columns.Count))
+
+    newWS.ListObjects.Add(xlSrcRange, tblRange.Resize(tblRange.Rows.Count, 8), , xlYes).Name = "MyTable"
+    newWS.ListObjects("MyTable").TableStyle = "TableStyleLight15"
+    
+
+    ' Rename the new sheet
+    newWS.Name = newSheetName
+    newWS.Activate
+    Range("MyTable[[#Headers],[Column5]]").Select
+    ActiveCell.FormulaR1C1 = "SKU"
+    Columns("D:D").Select
+    Range("D4").Activate
+    Selection.Delete Shift:=xlToLeft
+    Range("MyTable[[#Headers],[Column3]]").Select
+    ActiveCell.FormulaR1C1 = "Description"
+    Range("MyTable[[#Headers],[Column1]]").Select
+    ActiveCell.FormulaR1C1 = "Items"
+    Range("MyTable[[#Headers],[Column2]]").Select
+    ActiveCell.FormulaR1C1 = "(Module: Description)"
+    
+    
+    Range("A2").Activate
+    Selection.ColumnWidth = 22.71
+    Rows("6:6").RowHeight = 30
+    
+    
+    
+    ' Change PATH below("C:\Users\Abhi\img.jpg")
+    newWS.Pictures.Insert( _
+        "C:\Users\ussata00\Downloads\Ingram Branding Logos\Ingram.jpg").Select
+    Selection.ShapeRange.ScaleHeight 0.8235294334, msoFalse, msoScaleFromTopLeft
+    Selection.ShapeRange.IncrementTop -90
+    Selection.ShapeRange.ScaleHeight 0.5297618384, msoFalse, msoScaleFromTopLeft
+    Rows("7:7").RowHeight = 46.5
+    Range("A7").Select
+    Selection.Font.Size = 18
+    Selection.Font.Bold = True
+    ActiveCell.FormulaR1C1 = "DELL : " & newWS.Name & vbCrLf & "Quote :"
+    Selection.HorizontalAlignment = xlLeft
+    Selection.VerticalAlignment = xlTop
+    Range("A7:B7").Merge
+    Range("A9").Select
+    ActiveCell.FormulaR1C1 = "Thank you for contacting Ingram Micro. We value your business greatly and will continue to deliver the services you need to retain it."
+    Range("A10").Select
+    Selection.HorizontalAlignment = xlLeft
+    Selection.VerticalAlignment = xlTop
+    ActiveCell.FormulaR1C1 = "Ingram Micro makes every effort to provide a complete and correct solution. However, the accuracy of the solution provided is dependent on the information you provided. If relevant information is not provided, Ingram Micro cannot be held responsible. We urge you to review this quote fully to ensure it reflects all of your required specifications as there are no returns on CTO product. If you have additional questions, please contact your Ingram Micro sales rep or our Dell EMC ISG Team<DellEMCFederal@ingrammicro.com> at 800-456-8000 x77029. Remember to reference your Quote Number."
+    ' Merge and wrap text in A7:H7
+    Range("A10:H10").Merge
+    Range("A10:H10").WrapText = True
+    ' Set row height for row 10
+    Rows("10:10").RowHeight = 74
+    Rows("12:14").RowHeight = 0
+    ' Set column width for column B
+    Columns("C").ColumnWidth = 15
+    ' Add the additional information at the bottom
+    lastRowH = (endRow - startRow) + 16
+    Dim textArray As Variant
+    textArray = Array("Pricing & ordering information", _
+                      "For specific pricing and to order the above products, you may:", _
+                      "Call the Ingram Micro Sales department at 1.800.456.8000", _
+                      "Some products may be ordered on XANATAGE at https://usa.ingrammicro.com/cep/app/login", _
+                      "Please provide the following information:", _
+                      "Your PO Number / Your fax number", _
+                      "Shipping instructions", _
+                      "End customer PO number", _
+                      "End customer name", _
+                      "End customer address", _
+                      "End customer contact name", _
+                      "End customer contact phone number", _
+                      "End customer contact fax number", _
+                      "Thank you for your order!", _
+                      "This offer to sell the listed product(s) is subject to product availability and Ingram Micro's standard terms and conditions that are published on  http://www.ingrammicro.com. Prices are subject to change without notice. Please contact the Ingram Micro Sales desk at 1.800.456.8000 if you have any additional questions.", _
+                      "Leasing information", _
+                      "Win more opportunities by offering your customers flexible financing solutions with Ingram Micro Financial Solutions.", _
+                      "Learn more about Ingram Micro Leasing at https://usa.ingrammicro.com/cep/app/cms/en-us/services/financial", _
+                      "Contact a leasing specialist today at 1.800.456.8000 or email financialsolutions@ingrammicro.com", _
+                      "Lease pricing is intended to be a good faith estimate and is being used for marketing purposes only. The actual rate and payment amount may vary, and is subject to credit approval in addition to any terms and conditions that may be required.")
+    For i = LBound(textArray) To UBound(textArray)
+        newWS.Range(newWS.Cells(lastRowH + i, 1), newWS.Cells(lastRowH + i, 8)).Merge
+        newWS.Cells(lastRowH + i, 1).Value = textArray(i)
+        newWS.Cells(lastRowH + i, 1).WrapText = True
+        newWS.Rows(lastRowH + i).AutoFit
+    Next i
+    ActiveWindow.DisplayGridlines = False
+    
+    margin = InputBox("Enter the Margin Eg: 3 for 3%, 2.5 for 2.5% and < 100")
+    margin = margin / 100
+    For Each cell In newWS.Range("F16:G" & lastRowH)
+        If IsNumeric(cell.Value) And cell.Value <> "" Then
+            cell.Value = "$" & Format(Round(cell.Value / (1 - (margin)), 2))
+        End If
+    Next cell
+    
+    Rows("16:16").RowHeight = 30.75
+    Rows("16:16").Select
+    With Selection
+        .VerticalAlignment = xlCenter
+        .Font.Size = 13
+    End With
+    
+    Columns("F:G").ColumnWidth = 14
+    
+    Range("MyTable[[#Headers],[Description]]").Select
+    Selection.AutoFilter
+    ' added code to format
+    endRowt = lastRowH - 2
+
+    For Each cell In newWS.Range("A17:A" & endRowt)
+        If cell.Value <> "" Then
+            'Debug.Print cell.Offset(0, 1).Value
+            cell.Value = cell.Offset(0, 1).Value
+        End If
+    Next cell
+    
+    
+    For Each descCell In newWS.Range("C18:C" & endRowt)
+        If descCell.Value = "" Then
+            descCell.Value = descCell.Offset(0, -1).Value
+        Else
+            descCell.Value = descCell.Offset(0, -1).Value & " : " & descCell.Value
+
+        End If
+    Next descCell
+    Columns("B:B").ColumnWidth = 40
+    newWS.ListObjects("MyTable").ListColumns(2).Delete
+    Range("MyTable[[#Headers],[Unit Price]]").Select
+    ActiveCell.FormulaR1C1 = "MSRP"
+    ' Rename header to MSRP
+
+    ' Replace MSRP values only when "Items" column has text
+    Dim msrpRange As Range
+    Dim itemsRange As Range
+    Dim rowIndex As Long
+    Dim priceIndex As Long
+    
+    Set msrpRange = newWS.ListObjects("MyTable").ListColumns("MSRP").DataBodyRange
+    Set itemsRange = newWS.ListObjects("MyTable").ListColumns("Items").DataBodyRange
+    priceIndex = 1
+    
+    For rowIndex = 1 To msrpRange.Rows.Count
+        If priceIndex > listPrices.Count Then Exit For
+    
+        If Trim(itemsRange.Cells(rowIndex, 1).Value) <> "" Then
+            msrpRange.Cells(rowIndex, 1).Value = listPrices(priceIndex)
+            priceIndex = priceIndex + 1
+        End If
+    Next rowIndex
+    
+    If priceIndex <= listPrices.Count Then
+        'MsgBox "Note: Not all list prices were used. " & (listPrices.Count - priceIndex + 1) & " remaining.", vbInformation
+    End If
+
+    
+    
+    Range("MyTable[[#Headers],[Subtotal]]").Select
+    ActiveCell.FormulaR1C1 = "Quote total"
+    Call ProductImport1(newSheetName, unitPrices)
+    ws.Delete
+Cleanup:
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+    
+    
+    
+    
+End Sub
