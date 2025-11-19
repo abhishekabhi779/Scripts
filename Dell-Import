@@ -1,0 +1,174 @@
+Sub ProductImport1(newSheetName As String, unitPrices As Collection)
+    Dim ws As Worksheet
+    Dim lastRow As Long, summaryRow As Long
+    Dim i As Long
+    Dim qtyVal As Variant, costVal As Variant, unitPriceVal As Variant
+    Dim unitCost As Variant, itemName As String
+    Dim matchFound As Boolean
+    Dim keywords As Variant, keyword2 As Variant, kw
+    Dim itemText As String, finalEntry As String
+    Dim summaryText As String
+    Dim platformtext As String
+    Dim matchedKeywordList As String
+    Dim proposedsol As String
+    Dim internalcoments As String
+    Dim perUnitPrice As String
+
+    Set ws = ActiveSheet
+
+    keywords = Array("adapter", "Alienware", "Allied", "Barrell", "battery", "Conference", "Conferencing", _
+        "CTO APC", "CTO ASSEMBLY", "CTO ASSY", "DOCK", "ecoloop", "headset", "keyboard", "KVM", "kybd", _
+        "Latitude", "Lithium", "Logitech", "MNTR", "Monitor", "mouse", "NVIDIA", "OPEN MARKET", "Optiplex", _
+        "Precision", "rugged", "scanner", "Smartcard", "targus", "thunderboldt", "toner", "touch", _
+        "Ultrasharp", "VESA", "video", "webcam", "wireless", "wrkstn", "wyse", "XPS", "New Dell")
+
+    keyword2 = Array("rack servers", "poweredge", "r840", "tower servers", "t150", "modular infrastructure", "m640", "mx760c", "rugged servers", "xr12", "networking", "ethernet switches", "powerswitch", "mx i/o modules", "edge networking", "virtual edge platform", "edge gateway", "smartfabric os10", "os9", "os6", "open networking")
+
+    summaryText = ""
+    itemName = ""
+    'if it works do not touch
+
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    For i = 17 To lastRow
+        itemText = LCase(Trim(ws.Cells(i, 1).Value))
+        If itemText = "" Then GoTo ContinueLoop
+        If InStr(1, itemText, "subtotal", vbTextCompare) > 0 Or InStr(1, itemText, "Pricing & ordering information", vbTextCompare) > 0 Then Exit For
+        'Debug.Print "row " & i & ":" & itemText
+        qtyVal = ws.Cells(i, 4).Value
+        unitPriceVal = ws.Cells(i, 5).Value
+        costVal = ws.Cells(i, 6).Value
+
+        If Not IsNumeric(qtyVal) Then qtyVal = "*"
+        If Not IsNumeric(unitPriceVal) Then unitPriceVal = "*"
+        If Not IsNumeric(costVal) Then costVal = "*"
+
+        matchFound = False
+        matchedKeywordList = ""
+
+        For Each kw In keywords
+            If itemText Like "*" & LCase(kw) & "*" Then
+                matchFound = True
+                matchedKeywordList = "keywords"
+                Exit For
+            End If
+        Next kw
+        If Not matchFound Then
+            For Each kw In keyword2
+                If itemText Like "*" & LCase(kw) & "*" Then
+                    matchFound = True
+                    matchedKeywordList = "keyword2"
+                    Exit For
+                End If
+            Next kw
+        End If
+
+        itemName = ws.Cells(i, 1).Value
+
+        If matchFound Then
+            If IsNumeric(costVal) And IsNumeric(qtyVal) And qtyVal <> 0 Then
+                unitCost = Round(costVal / qtyVal, 2)
+            Else
+                unitCost = "*"
+            End If
+
+            Dim sku As String
+            If matchedKeywordList = "keywords" Then
+                sku = "9FU605"
+            ElseIf matchedKeywordList = "keyword2" Then
+                sku = "N85997"
+            End If
+            'if it works
+            'perUnitPrice = IIf(IsNumeric(qtyVal) And qtyVal <> 0, WorksheetFunction.Round(CDbl(Replace(Replace(CStr(unitPriceVal), "$", ""), ",", "")) / CDbl(qtyVal), 2), unitPriceVal)
+
+            finalEntry = sku & "," & qtyVal & "," & unitCost & ",*,*,*,*," & unitPriceVal & "@" & newSheetName & " " & Split(Split(Split(itemName, "(")(0), "-")(0), "[")(0)
+        Else
+            If IsNumeric(costVal) And IsNumeric(qtyVal) And qtyVal <> 0 Then
+                unitCost = Round(costVal / qtyVal, 2)
+            Else
+                unitCost = "*"
+            End If
+            'if it works
+            'perUnitPrice = IIf(IsNumeric(qtyVal) And qtyVal <> 0, WorksheetFunction.Round(CDbl(Replace(Replace(CStr(unitPriceVal), "$", ""), ",", "")) / CDbl(qtyVal), 2), unitPriceVal)
+
+            finalEntry = " ," & qtyVal & "," & unitCost & ",*,*,*,*," & unitPriceVal & "@" & newSheetName & " " & Split(Split(Split(itemName, "(")(0), "-")(0), "[")(0)
+        End If
+
+        summaryText = summaryText & finalEntry & vbCrLf
+
+ContinueLoop:
+        'Debug.Print i
+    Next i
+    
+    summaryRow = lastRow + 1
+    ws.Cells(summaryRow, 1).Value = summaryText
+    ws.Cells(summaryRow, 1).WrapText = True
+    ws.Rows(summaryRow).RowHeight = 100
+    ws.Range(ws.Cells(summaryRow, 1), ws.Cells(summaryRow, 8)).Merge
+    ws.Cells(summaryRow, 1).Font.Bold = True
+    ws.Cells(summaryRow, 1).Interior.Color = RGB(224, 224, 224)
+    
+    
+    Dim proposedRow As Long, internalRow As Long
+    Dim proposedText As String, internalText As String, disclaimer As String
+    proposedRow = summaryRow + 1
+    internalRow = summaryRow + 2
+    proposedText = ""
+    internalText = ""
+    proposedText = newSheetName & vbCrLf & vbCrLf
+    internalText = newSheetName & vbCrLf & vbCrLf
+    
+    Dim priceIndex As Long: priceIndex = 1
+
+    For i = 17 To lastRow
+        itemText = Trim(ws.Cells(i, 1).Value)
+    
+        If itemText = "" Then GoTo ContinueExtraLoop
+        If InStr(1, itemText, "subtotal", vbTextCompare) > 0 Or InStr(1, itemText, "Pricing & ordering information", vbTextCompare) > 0 Then Exit For
+    
+        proposedText = proposedText & itemText & " , MSRP: " & ws.Cells(i, 5).Value & vbCrLf & vbCrLf
+    
+        If priceIndex <= unitPrices.Count Then
+            internalText = internalText & itemText & " , cost: " & unitPrices(priceIndex) & vbCrLf & vbCrLf
+            priceIndex = priceIndex + 1
+        Else
+            internalText = internalText & itemText & " , cost: N/A" & vbCrLf
+        End If
+
+ContinueExtraLoop:
+    Next i
+    proposedText = proposedText & vbCrLf & _
+    "** DISCLAIMER - This quote is valid for 30 days. Please review the Configuration Details before Purchasing. " & _
+    "Dell Federal has a 30-day return policy for all damaged, missing, and incorrect parts. All returns may be subject to a restocking fee. " & _
+    "All Wyse product is non-returnable. Please review Dell’s updated return policy at https://www.dell.com/en-us/lp/return-policy. " & _
+    "CTO Lead times are subject to change based on parts availability; please reference the quote for lead times. " & _
+    "Dell does not provide the exact COO on their TAA product until the order actually ships since it could be one of two countries. " & _
+    "In this case, it is either Mexico or Taiwan. There is free standard shipping on all Dell federal orders within the United States, " & _
+    "including Alaska and Hawaii. Please provide full ship-to address. If OCONUS shipping is needed, please specify. " & _
+    "To Purchase, please send your PO to your Ingram Micro Sales team including the Ingram Micro Quote number. **" & vbCrLf
+
+    
+    ' Proposed Solution block
+    ws.Cells(proposedRow, 1).Value = proposedText
+    ws.Cells(proposedRow, 1).WrapText = True
+    ws.Rows(proposedRow).RowHeight = 200
+    ws.Range(ws.Cells(proposedRow, 1), ws.Cells(proposedRow, 8)).Merge
+    ws.Cells(proposedRow, 1).Font.Bold = False
+    ws.Cells(proposedRow, 1).Interior.Color = RGB(230, 230, 230)
+    
+    ' Internal Comments block
+    ws.Cells(internalRow, 1).Value = internalText
+    ws.Cells(internalRow, 1).WrapText = True
+    ws.Rows(internalRow).RowHeight = 100
+    ws.Range(ws.Cells(internalRow, 1), ws.Cells(internalRow, 8)).Merge
+    ws.Cells(internalRow, 1).Font.Bold = False
+    ws.Cells(internalRow, 1).Interior.Color = RGB(242, 242, 242)
+
+    
+
+
+End Sub
+
+
+
+
