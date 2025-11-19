@@ -1,0 +1,202 @@
+Sub equotes1()
+    Dim ws As Worksheet                                            ' MSRP is not marked up
+    Dim wb As Workbook
+    Dim lastRow As Long
+    Dim lastRowH As Long
+    Dim lastCol As Long
+    Dim i As Long
+    Dim searchTerms As Variant
+    Dim tblRange As Range
+    Dim margin As Double
+    Dim newfilepath As String
+    Dim csvpath As String
+    Dim newSheetName As String
+        
+    Dim baseName As String
+    Dim newName As String
+
+    
+    ' Get the active sheet
+    Set ws = ActiveSheet
+    newSheetName = ws.Name
+    ' Define the search terms
+    searchTerms = Array("Savings", "Taxes (17%)", "Estimated Shipping")
+    ' Find the last row in the sheet
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    ws.Rows(lastRow + 15).RowHeight = 35
+    ' Loop through each row in column A
+    For i = lastRow To 1 Step -1
+        ' Check if the cell contains any of the search terms
+        If Not IsError(Application.Match(ws.Cells(i, 1).Value, searchTerms, 0)) Then
+            ' Delete the entire row
+            ws.Rows(i).Delete
+        End If
+    Next i
+    ' Delete specific columns
+    Columns("B:C").Delete Shift:=xlToLeft
+    Columns("E").Delete
+    Columns("C").Delete
+    ' Find the last used column
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    ' Move the data 15 rows down
+    ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, lastCol)).Cut Destination:=ws.Cells(16, 1)
+    ' Fill color in row 16 from column 1 to the last used column
+    ws.Range(ws.Cells(16, 1), ws.Cells(16, lastCol)).Interior.Color = RGB(192, 192, 192) ' Lighter grey color
+    ws.Range(ws.Cells(16, 1), ws.Cells(16, lastCol)).Font.Size = 16
+    ' Define
+    Set tblRange = ws.Range(ws.Cells(16, 1), ws.Cells(lastRow + 13, lastCol))
+    ws.ListObjects.Add(xlSrcRange, tblRange, , xlYes).Name = "MyTable"
+    ws.ListObjects("MyTable").TableStyle = "TableStyleLight15"
+    Cells.Select
+    Range("A2").Activate
+    Selection.ColumnWidth = 22.71
+    Rows("6:6").RowHeight = 30
+    
+    
+    
+    
+    '//////////////////////////////////////////////
+    ' Change PATH below("C:\Users\Abhi\img.jpg")
+    '//////////////////////////////////////////////
+    Dim pic As Picture
+    Set pic = ws.Pictures.Insert( _
+        "C:\Users\ussata00\Downloads\Ingram Branding Logos\Ingram.jpg")
+    pic.ShapeRange.ScaleHeight 0.8235294334, msoFalse, msoScaleFromTopLeft
+    pic.ShapeRange.IncrementTop -90
+    pic.ShapeRange.ScaleHeight 0.5297618384, msoFalse, msoScaleFromTopLeft
+    Rows("7:7").RowHeight = 46.5
+    Range("A7").Select
+    Selection.Font.Size = 18
+    Selection.Font.Bold = True
+    ActiveCell.FormulaR1C1 = "DELL : " & ws.Name & vbCrLf & "Quote :"
+    Selection.HorizontalAlignment = xlLeft
+    Selection.VerticalAlignment = xlTop
+    Range("A7:B7").Merge
+    Range("A9").Select
+    ActiveCell.FormulaR1C1 = "Thank you for contacting Ingram Micro. We value your business greatly and will continue to deliver the services you need to retain it."
+    Range("A10").Select
+    Selection.HorizontalAlignment = xlLeft
+    Selection.VerticalAlignment = xlTop
+    ActiveCell.FormulaR1C1 = "Ingram Micro makes every effort to provide a complete and correct solution. However, the accuracy of the solution provided is dependent on the information you provided. If relevant information is not provided, Ingram Micro cannot be held responsible. We urge you to review this quote fully to ensure it reflects all of your required specifications as there are no returns on CTO product. If you have additional questions, please contact your Ingram Micro sales rep or our Dell EMC ISG Team<DellEMCFederal@ingrammicro.com> at 800-456-8000 x77029. Remember to reference your Quote Number."
+    ' Merge and wrap text in A7:H7
+    Range("A10:H10").Merge
+    Range("A10:H10").WrapText = True
+    ' Set row height for row 10
+    Rows("10:10").RowHeight = 44
+    Rows("12:15").RowHeight = 0
+    ' Set column width for column B
+    Columns("B").ColumnWidth = 60
+    ' Add the additional information at the bottom
+    lastRowH = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row + 3
+    Dim textArray As Variant
+    textArray = Array("Pricing & ordering information", _
+                      "For specific pricing and to order the above products, you may:", _
+                      "Call the Ingram Micro Sales department at 1.800.456.8000", _
+                      "Some products may be ordered on XANATAGE at https://usa.ingrammicro.com/cep/app/login", _
+                      "Please provide the following information:", _
+                      "Your PO Number / Your fax number", _
+                      "Shipping instructions", _
+                      "End customer PO number", _
+                      "End customer name", _
+                      "End customer address", _
+                      "End customer contact name", _
+                      "End customer contact phone number", _
+                      "End customer contact fax number", _
+                      "Thank you for your order!", _
+                      "This offer to sell the listed product(s) is subject to product availability and Ingram Micro's standard terms and conditions that are published on  http://www.ingrammicro.com. Prices are subject to change without notice. Please contact the Ingram Micro Sales desk at 1.800.456.8000 if you have any additional questions.", _
+                      "Leasing information", _
+                      "Win more opportunities by offering your customers flexible financing solutions with Ingram Micro Financial Solutions.", _
+                      "Learn more about Ingram Micro Leasing at https://usa.ingrammicro.com/cep/app/cms/en-us/services/financial", _
+                      "Contact a leasing specialist today at 1.800.456.8000 or email financialsolutions@ingrammicro.com", _
+                      "Lease pricing is intended to be a good faith estimate and is being used for marketing purposes only. The actual rate and payment amount may vary, and is subject to credit approval in addition to any terms and conditions that may be required.")
+    For i = LBound(textArray) To UBound(textArray)
+        ws.Range(ws.Cells(lastRowH + i, 1), ws.Cells(lastRowH + i, 8)).Merge
+        ws.Cells(lastRowH + i, 1).Value = textArray(i)
+        ws.Cells(lastRowH + i, 1).WrapText = True
+        ws.Rows(lastRowH + i).AutoFit
+    Next i
+    ws.Range("E16:E" & lastRowH - 3).MergeCells = False
+    ws.Range("D16:D" & lastRowH - 3).MergeCells = False
+
+    ws.Range("E16:E" & lastRowH - 3).Cut
+    ws.Range("D16:D" & lastRowH - 3).Insert Shift:=xlToRight
+    ActiveWindow.DisplayGridlines = False
+    ws.Range(ws.Cells(lastRowH + 15, 1), ws.Cells(lastRowH + 15, 16)).Interior.Color = RGB(192, 192, 192) ' Grey fill color
+    ws.Range(ws.Cells(lastRowH, 1), ws.Cells(lastRowH, 16)).Interior.Color = RGB(192, 192, 192)  ' Grey fill color
+    With ws.ListObjects("MyTable").Range.AutoFilter
+    End With
+    Range("MyTable[[#Headers],[Unit Price]]").Select
+    ActiveCell.FormulaR1C1 = "MSRP"
+    Range("MyTable[[#Headers],[Item total]]").Select
+    ActiveCell.FormulaR1C1 = "Quote total"
+    Range("A7:B7").Select
+    margin = InputBox("Enter the Margin Eg: 3 for 3%, 2.5 for 2.5% and < 100")
+    margin = margin / 100
+    ' Store original unit prices before applying margin
+    
+    Dim unitPrices As Collection
+    Set unitPrices = New Collection
+    
+    Dim unitCell As Range
+    Dim qty As Variant
+    Dim totalPrice As Variant
+    Dim unitPrice As Double
+    
+    For Each unitCell In ws.Range("F18:F" & lastRow + 10)
+        qty = ws.Cells(unitCell.Row, 4).Value ' Column D = Quantity
+        totalPrice = unitCell.Value           ' Column F = Total Price
+    
+        If IsNumeric(qty) And qty <> 0 And IsNumeric(totalPrice) And totalPrice <> "" Then
+            unitPrice = totalPrice / qty
+            unitPrices.Add unitPrice
+        End If
+    Next unitCell
+    
+    
+
+    
+    
+
+     
+    
+    For Each cell In ws.Range("F18:F" & lastRow + 13)
+        If IsNumeric(cell.Value) And cell.Value <> "" Then
+            cell.Value = Round(cell.Value / (1 - margin), 2)
+    
+    End If
+    
+    Next cell
+    For i = 18 To lastRow + 13
+    If IsNumeric(ws.Cells(i, "D").Value) And ws.Cells(i, "D").Value > 0 And IsNumeric(ws.Cells(i, "E").Value) Then
+        ws.Cells(i, "E").Value = ws.Cells(i, "D").Value * ws.Cells(i, "E").Value
+    End If
+    Next i
+
+    
+    Set wb = ws.Parent
+    
+    csvpath = wb.FullName
+    
+    ' Extract the filename without path or extension
+    baseName = Mid(wb.Name, InStr(wb.Name, "_") + 1)
+    baseName = Replace(baseName, "_", ".")
+    baseName = Replace(baseName, ".csv", "")
+    
+    newName = baseName & ".xlsx"
+    newfilepath = wb.Path & "\" & newName
+    
+    ActiveWorkbook.SaveAs fileName:=newfilepath, FileFormat:=xlOpenXMLWorkbook
+    
+    Kill csvpath
+
+    
+    newSheetName = baseName
+    
+    Call ProductImport1(newSheetName, unitPrices)
+    
+End Sub
+
+
+
+
+
