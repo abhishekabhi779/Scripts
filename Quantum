@@ -1,0 +1,60 @@
+Sub QuantumMacro()
+    Dim ws As Worksheet
+    Dim r As Long, lastRow As Long
+    Dim startRow As Long, headerRow As Long
+    Dim model As String, qty As Double, price As Double
+    
+    Set ws = ActiveSheet
+    lastRow = ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+    
+    ' Find "Model Number" header in Column B
+    headerRow = 0
+    For r = 1 To lastRow
+        If Trim(ws.Cells(r, "B").Value) = "Model Number" Then
+            headerRow = r
+            Exit For
+        End If
+    Next r
+    
+    If headerRow = 0 Then
+        MsgBox "Header 'Model Number' not found in Column B.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Find first non-empty cell below header
+    startRow = headerRow + 1
+    
+    
+    
+    ' Detect Qty and Extended Price columns dynamically
+    Dim qtyCol As Long, priceCol As Long, c As Long, lastCol As Long
+    lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+    
+    For c = 1 To lastCol
+        If Trim(ws.Cells(headerRow, c).Value) = "Qty" Then qtyCol = c
+        If InStr(1, ws.Cells(headerRow, c).Value, "Extended Price", vbTextCompare) > 0 Then priceCol = c
+    Next c
+    
+    If qtyCol = 0 Or priceCol = 0 Then
+        MsgBox "Could not find Qty or Extended Price columns.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Loop through rows until "Total" or blank
+    For r = startRow To lastRow
+    ' Skip rows with no model number
+        If Trim(ws.Cells(r, "B").Value) <> "" Then
+            model = Trim(ws.Cells(r, "B").Value)
+            qty = Val(ws.Cells(r, qtyCol).Value)
+            price = Val(ws.Cells(r, priceCol).Value)
+            
+            If qty > 0 And price > 0 Then
+                ws.Cells(r, "U").Value = model & " " & qty & " " & Format(price, "0.00")
+            Else
+                ws.Cells(r, "U").Value = "" ' optional clear
+            End If
+        End If
+Next r
+
+    
+End Sub
