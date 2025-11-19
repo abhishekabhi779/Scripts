@@ -1,0 +1,91 @@
+function main(workbook: ExcelScript.Workbook, markupPercentage: number) {
+    let selectedSheet = workbook.getActiveWorksheet();
+    selectedSheet.getRange("H3:K8").clear(ExcelScript.ClearApplyTo.all);
+    selectedSheet.getRange("M2").setValue(" Contact Information");
+    selectedSheet.getRange("T25").setValue("MSRP(USD)");
+    selectedSheet.getRange("M6").setValue("");
+    selectedSheet.getRange("B7:F10").clear(ExcelScript.ClearApplyTo.contents);
+    selectedSheet.getRange("M4").setValue("Dell EMC Services");
+    selectedSheet.getRange("C12:D19").delete(ExcelScript.DeleteShiftDirection.left);
+    selectedSheet.getRange("M5").setValue("DellEMCServices@IngramMicro.com");
+    selectedSheet.getRange("V25:W25").setValue("");
+
+    let v29Value = selectedSheet.getRange("V29").getValue();
+    if (v29Value !== "" && v29Value !== null) {
+        selectedSheet.getRange("V28").getExtendedRange(ExcelScript.KeyboardDirection.down).clear(ExcelScript.ClearApplyTo.contents);
+    } else {
+        selectedSheet.getRange("V28").clear(ExcelScript.ClearApplyTo.contents);
+    }
+
+    let w29Value = selectedSheet.getRange("W29").getValue();
+    if (w29Value !== "" && w29Value !== null) {
+        selectedSheet.getRange("W28").getExtendedRange(ExcelScript.KeyboardDirection.down).clear(ExcelScript.ClearApplyTo.contents);
+    } else {
+        selectedSheet.getRange("W28").clear(ExcelScript.ClearApplyTo.contents);
+    }
+
+    selectedSheet.getRange("X25").setValue("Reseller Cost (USD)");
+
+    // Update values in column X (starting from X28 downward)
+    let xRange = selectedSheet.getRange("X28").getExtendedRange(ExcelScript.KeyboardDirection.down);
+    let xValues = xRange.getValues();
+
+    // Ensure the range does not include MSRP rows
+    let lastDataRow = xValues.findIndex(row => row[0] === "") - 1;
+    if (lastDataRow === -2) lastDataRow = xValues.length - 1;
+
+    // Calculate the markup factor
+    let markupFactor = 1 - markupPercentage / 100;
+
+    // Iterate through each cell in the column and apply the markup
+    for (let i = 0; i <= lastDataRow; i++) {
+        let currentValue = xValues[i][0];
+        console.log(`Processing cell X${i + 28}: ${currentValue}`); // Debug print
+        if (typeof currentValue === "number" && currentValue !== 0) {
+            xValues[i][0] = parseFloat((currentValue / markupFactor).toFixed(2));
+            console.log(`Updated cell X${i + 28}: ${xValues[i][0]}`); // Debug print
+        }
+    }
+
+    // Write updated values back to the range
+    xRange.getCell(0, 0).getResizedRange(lastDataRow, 0).setValues(xValues.slice(0, lastDataRow + 1));
+
+    let lastRow = lastDataRow + 28;
+    let sumFormulaX = `=SUM(X28:X${lastRow})`;
+    let sumFormulaT = `=SUM(T28:T${lastRow}) + SUM(U28:U${lastRow})`;
+
+    let msrp = lastRow + 3;
+    let rcost = lastRow + 6;
+    let targetRow = lastRow + 4;
+    let targetRow2 = lastRow + 5;
+
+    selectedSheet.getRange(`V${msrp}`).setValue("MSRP(USD)");
+    selectedSheet.getRange(`V${rcost}`).setValue("Reseller Cost(USD)");
+    selectedSheet.getRange(`X${rcost}`).setFormula(sumFormulaX);
+    selectedSheet.getRange(`X${msrp}`).setFormula(sumFormulaT);
+
+    selectedSheet.getRange(`V${targetRow}:X${targetRow2}`).clear(ExcelScript.ClearApplyTo.contents);
+
+    // Check if there is data in column U and paste it into the same row in column X
+    let uRange = selectedSheet.getRange(`U28:U${lastRow}`);
+    let uValues = uRange.getValues();
+
+
+    if (markupPercentage === 6 || markupPercentage === 8) {
+        console.log(` markupPercentage: ${markupPercentage}. RIF is discounted.`);
+    } else{
+        for (let i = 0; i < uValues.length; i++) {
+            let uValue = uValues[i][0];
+            console.log(`Processing cell U${i + 28}: ${uValue}`); // Debug print
+            if (uValue !== "" && uValue !== null && uValue !== 0) {
+                xValues[i][0] = uValue;
+                console.log(`Updated cell X${i + 28} with value from U${i + 28}: ${xValues[i][0]}`); // Debug print
+            }
+        }
+    }
+
+    
+
+    // Write updated values back to column X
+    xRange.getCell(0, 0).getResizedRange(lastDataRow, 0).setValues(xValues.slice(0, lastDataRow + 1));
+}
