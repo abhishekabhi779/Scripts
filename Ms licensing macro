@@ -1,0 +1,110 @@
+Sub SendEmail()
+'
+' SendEmail Macro
+'
+Dim emailApplication As Object
+Dim emailItem As Object
+Dim basename As String
+Dim cellValue As String
+Dim saveFolder As String
+Dim savedFilePath As String
+
+Set ws = ThisWorkbook.Sheets("Contract")
+'Application.CalculateFullRebuild
+ws.Calculate
+
+'Save the workshet so latest changes are included
+'ThisWorkbook.Save
+ActiveWorkbook.Save
+saveFolder = "xx"
+cellValue = ThisWorkbook.Sheets("Contract").Range("B3").Value
+savedFilePath = saveFolder & "\" & "Microsoft Licensing -" & cellValue & ".xlsx"
+Application.DisplayAlerts = False
+Application.ScreenUpdating = False
+'----------------------------------------------------------------------------------------------------
+
+
+ThisWorkbook.Sheets("Contract").Calculate
+'-------------------------
+savedB9Value = ThisWorkbook.Sheets("contract").Range("B9").Value
+ThisWorkbook.Sheets("Contract").Copy
+Set wbNew = ActiveWorkbook
+Set Wsnew = wbNew.Sheets(1)
+Wsnew.Calculate
+With Wsnew.UsedRange
+    .Value = .Value
+End With
+
+
+If Wsnew.Range("B9").Validation.Type <> xlNone Then
+    Wsnew.Range("B9").Validation.Delete
+End If
+
+Wsnew.Range("B9").ClearFormats
+Wsnew.Range("B9").Value = savedB9Value
+Wsnew.Range("B9").HorizontalAlignment = xlLeft
+With Wsnew.Range("B9").Borders
+    .LineStyle = xlContinuous
+    .Weight = xlThin
+    .ColorIndex = xlAutomatic
+End With
+
+
+
+
+
+ThisWorkbook.Sheets("contract").Range("B9").Value = savedB9Value
+wbNew.SaveAs fileName:=savedFilePath, FileFormat:=xlOpenXMLWorkbook
+wbNew.Close SaveChanges:=False
+
+Application.DisplayAlerts = True
+Application.ScreenUpdating = True
+
+Set emailApplication = CreateObject("outlook.application")
+Set emailItem = emailApplication.createItem(0)
+
+'build email
+emailItem.To = "xx@x.com"
+emailItem.Subject = "Bid Load Microsoft_OnPrem_Quote"
+
+'attach current workbook
+emailItem.attachments.Add savedFilePath
+'send the email
+emailItem.send
+
+'Clear specific cells
+With ws
+    .Range("B3:B9").ClearContents
+    .Range("B11:B15").ClearContents
+    .Range("A18").ClearContents
+    .Range("A48").ClearContents
+    .Range("A78").ClearContents
+    .Range("A20:A44").ClearContents
+    .Range("A50:A74").ClearContents
+    .Range("A80:A104").ClearContents
+    'qty
+    .Range("f20:f44").ClearContents
+    .Range("f50:f74").ClearContents
+    .Range("f80:f104").ClearContents
+    'resller price
+    .Range("g20:g44").ClearContents
+    .Range("g50:g74").ClearContents
+    .Range("g80:g104").ClearContents
+End With
+'display the email
+'emailItem.display
+
+Set emailItem = Nothing
+Set emailApplication = Nothing
+
+MsgBox "Quote sent to Engine!"
+StampContractIdAndDate
+
+Done:
+'
+
+
+
+End Sub
+
+
