@@ -1,0 +1,99 @@
+
+Option Explicit
+
+Private Sub Worksheet_Change(ByVal Target As Range)
+    
+    Dim ws As Worksheet
+    Dim quoteTypeCell As Range
+    Dim labelCell As Range
+    Dim valueCell As Range
+    Dim isAddOn As Boolean
+    Dim t As String
+
+    Set ws = Me
+    Set quoteTypeCell = ws.Range("B8")
+    Set labelCell = ws.Range("A9")
+    Set valueCell = ws.Range("B9")
+    If Intersect(Target, quoteTypeCell) Is Nothing Then Exit Sub
+    Application.EnableEvents = False
+    Application.ScreenUpdating = False
+    t = UCase$(Trim$(quoteTypeCell.Value))
+    t = Replace$(t, "-", " ")
+    t = WorksheetFunction.Trim(t)
+    isAddOn = (t = "ADD ON")
+
+    If isAddOn Then
+        ' -------- ADD-ON state
+        labelCell.Value = "Add-On – Year"
+
+        On Error Resume Next
+        valueCell.Validation.Delete
+        On Error GoTo Errhandler
+        valueCell.ClearContents
+
+        With valueCell.Validation
+            .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+                 Operator:=xlBetween, Formula1:="1,2,3"
+            .IgnoreBlank = True
+            .InCellDropdown = True
+    
+        End With
+        'ws.Range("B9").NumberFormat = "0"
+        
+        On Error Resume Next
+        ws.Range("A8").Copy
+        labelCell.PasteSpecial Paste:=xlPasteFormats
+        ws.Range("B3").Copy
+        valueCell.PasteSpecial Paste:=xlPasteFormats
+        Application.CutCopyMode = False
+
+        
+        With ws.Range("A9:B9").Borders(xlEdgeBottom)
+            .LineStyle = xlContinuous
+            .Weight = xlMedium
+            .ColorIndex = xlAutomatic
+        End With
+        ws.Parent.Save
+
+    Else
+        ' --- NOT ADD-ON state
+
+        ' Clear label & dropdown/value
+        labelCell.ClearContents
+        On Error Resume Next
+        valueCell.Validation.Delete
+        On Error GoTo Errhandler
+        valueCell.ClearContents
+
+        ' Clear ALL formats of A9 and B9
+        labelCell.ClearFormats
+        valueCell.ClearFormats
+
+        ' Remove bottom borders under A8 and B8
+        With ws.Range("A9:B9").Borders(xlEdgeBottom)
+            .LineStyle = xlLineStyleNone
+        End With
+        
+        With ws.Range("A8:B8").Borders(xlEdgeBottom)
+            .LineStyle = xlContinuous
+            .Weight = xlMedium
+            .ColorIndex = xlAutomatic
+        End With
+        
+    End If
+
+SafeExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    Exit Sub
+
+Errhandler:
+
+MsgBox "Error: " & Err.Description, vbCritical, "Macro Error - restoring Application.enableevents=true"
+    Resume SafeExit
+End Sub
+
+
+
+
+
