@@ -1,0 +1,553 @@
+Option Explicit
+Private Function TryDate(ByVal v As Variant) As Date
+    ' Safely coerce numbers/strings to a Date; returns 0 if not a valid date
+    On Error Resume Next
+    If IsDate(v) Then TryDate = CDate(v) Else TryDate = 0
+    On Error GoTo 0
+End Function
+
+Private Function SplitIntoAnnualPeriods(ByVal startDate As Date, ByVal endDate As Date) As Collection
+    ' Returns Collection of Array(annStart As Date, annEnd As Date)
+    Dim periods As New Collection
+    Dim curStart As Date, curEnd As Date
+    If startDate = 0 Or endDate = 0 Then
+        Set SplitIntoAnnualPeriods = periods
+        Exit Function
+    End If
+    
+    curStart = startDate
+    Do While curStart <= endDate
+        curEnd = DateAdd("d", -1, DateAdd("yyyy", 1, curStart)) ' anniversary minus 1 day
+        If curEnd > endDate Then curEnd = endDate
+        periods.Add Array(curStart, curEnd)
+        curStart = DateAdd("d", 1, curEnd) ' next day after previous segment
+    Loop
+    
+    Set SplitIntoAnnualPeriods = periods
+End Function
+Sub ProcessQuoteAnnual_format_splitter2()
+    Dim ws As Worksheet
+    Dim outputWs As Worksheet
+    Dim lastRow As Long
+    Dim endRow As Long
+    Dim i As Long
+    Dim isAnnual As Boolean
+    Dim response As VbMsgBoxResult
+    
+    ' Ask user if annual
+    response = MsgBox("Is this an annual quote?", vbYesNo + vbQuestion, "Quote Type")
+    isAnnual = (response = vbYes)
+    
+    ' Assume active sheet is the quote sheet
+    Set ws = ActiveSheet
+    
+    ' Find the header row by looking for "software description" in column A
+    Dim headerRow As Long
+    headerRow = 0
+    For i = 1 To ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+        If LCase(Trim(ws.Cells(i, 1).Value)) = "software description" Then
+    
+            ' Check if this row has the required headers
+           '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''' Debug.Print i, "[" & ws.Cells(i, 1).Value & "]", Len(ws.Cells(i, 1).Value)
+            If HasRequiredHeaders(ws, i) Then
+                headerRow = i
+                Exit For
+            End If
+        
+        End If
+    Next i
+    
+    If headerRow = 0 Then
+        MsgBox "Software description header not found or required headers missing.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Find the end of software section
+    
+    endRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+    For i = headerRow + 1 To endRow
+        If Trim(ws.Cells(i, 1).Value) = "Net Total Software" Then
+            endRow = i - 1
+            Exit For
+        End If
+    Next i
+    
+    ' Find column indices
+    Dim colProductCode As Long
+    Dim colQuantity As Long
+    Dim colNetTotalUSD As Long
+    Dim colListUnitPrice As Long
+    Dim colStartDate As Long
+    Dim colEndDate As Long
+    Dim colNetUnitPrice As Long
+    Dim billingPeriodCol As Long
+    
+    colProductCode = FindColumn(ws, headerRow, "Product Code")
+    colQuantity = FindColumn(ws, headerRow, "Quantity")
+    colNetTotalUSD = FindColumn(ws, headerRow, "Net Total USD")
+    colNetUnitPrice = FindColumn(ws, headerRow, "Net Unit Price")
+    colListUnitPrice = FindColumn(ws, headerRow, "List Unit Price")
+    colStartDate = FindColumn(ws, headerRow, "License Term Start Date (MM-DD-YYYY)")
+    colEndDate = FindColumn(ws, headerRow, "License Term  End Date" & vbLf & "(MM-DD-YYYY)")
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''DEBUG FOR ANNUAL
+    If colProductCode = 0 Or colQuantity = 0 Or colNetUnitPrice = 0 Or colListUnitPrice = 0 Or colStartDate = 0 Or colEndDate = 0 Then
+        MsgBox "One or more required headers not found. Please check the sheet headers.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Create output sheet
+    On Error Resume Next
+    Set outputWs = Worksheets("Output")
+    If outputWs Is Nothing Then
+        Set outputWs = Worksheets.Add
+        outputWs.Name = "Output"
+    Else
+        outputWs.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    ' Output header - single column format
+    outputWs.Cells(1, 1).Value = "ProcessedLine"
+    
+    Dim outputRow As Long
+    outputRow = 2
+    
+    If Not isAnnual Then
+        ' Regular quote processing
+        For i = headerRow + 1 To endRow
+            If Trim(ws.Cells(i, colProductCode).Value) <> "" And Not IsRepeatedHeader(ws, i, headerRow, Array(colProductCode, colQuantity, colStartDate, colEndDate, colListUnitPrice, colNetUnitPrice)) Then
+                ' For regular, dates in comments after @
+                Dim startDate As String
+                Dim endDate As String
+                Dim startDateValue As Date
+                Dim endDateValue As Date
+                
+                If IsDate(ws.Cells(i, colStartDate).Value) Then
+                    startDate = Format(ws.Cells(i, colStartDate).Value, "mm/dd/yyyy")
+                    startDateValue = ws.Cells(i, colStartDate).Value
+                Else
+                    startDate = CStr(ws.Cells(i, colStartDate).Value)
+                    startDateValue = CDate(ws.Cells(i, colStartDate).Value)
+                End If
+                If IsDate(ws.Cells(i, colEndDate).Value) Then
+                    endDate = Format(ws.Cells(i, colEndDate).Value, "mm/dd/yyyy")
+                    endDateValue = ws.Cells(i, colEndDate).Value
+                Else
+                    endDate = CStr(ws.Cells(i, colEndDate).Value)
+                    endDateValue = CDate(ws.Cells(i, colEndDate).Value)
+                End If
+                
+                ' Calculate number of days in the quote period
+                Dim daysInPeriod As Long
+                daysInPeriod = DateDiff("d", startDateValue, endDateValue) + 1 ' -----------------------------
+                
+                ' Calculate actual number of days in the year(s) covered by the quote
+                Dim startYear As Long
+                Dim endYear As Long
+                Dim daysInYear As Long
+                startYear = Year(startDateValue)
+                endYear = Year(endDateValue)
+                
+                ' Calculate days in the year using same Days() method for consistency---------------------------------------------inclusive fix changed denominator
+                If startYear = endYear Then
+                    daysInYear = DateDiff("d", DateSerial(startYear, 1, 1), DateSerial(startYear, 12, 31)) + 1
+                Else
+                    Dim daysStartYear As Long
+                    Dim daysEndYear As Long
+                    daysStartYear = DateDiff("d", DateSerial(startYear, 1, 1), DateSerial(startYear, 12, 31)) + 1
+                    daysEndYear = DateDiff("d", DateSerial(endYear, 1, 1), DateSerial(endYear, 12, 31)) + 1
+                    daysInYear = (daysStartYear + daysEndYear) / 2
+                End If
+                
+                ' Extract clean numeric values without currency/comma formatting
+                Dim costf As String
+                Dim msrpf As String
+                Dim listPriceValue As Double
+                costf = CStr(Val(Replace(Replace(CStr(ws.Cells(i, colNetUnitPrice).Value), "$", ""), ",", "")))
+                listPriceValue = Val(Replace(Replace(CStr(ws.Cells(i, colListUnitPrice).Value), "$", ""), ",", ""))
+                
+                ' Calculate prorated list unit price based on number of days
+                Dim proratedListPrice As Double
+                proratedListPrice = listPriceValue * (daysInPeriod / daysInYear)
+                msrpf = CStr(WorksheetFunction.Round(proratedListPrice, 2))
+                
+                ' Format dates as C:YYYYMMDD - E:YYYYMMDD
+                Dim formattedStartDate As String
+                Dim formattedEndDate As String
+                formattedStartDate = "C:" & Format(startDateValue, "YYYYMMDD")
+                formattedEndDate = "E:" & Format(endDateValue, "YYYYMMDD")
+                
+                ' Single column output: ProductCode,Qty,*,*,*,*,Cost,ListPrice@Term: StartDate-EndDate
+                outputWs.Cells(outputRow, 1).Value = Replace(Trim(CStr(ws.Cells(i, colProductCode).Value & "," & _
+                    ws.Cells(i, colQuantity).Value & "," & _
+                    "*," & "*," & "*," & "*," & _
+                    costf & "," & msrpf & "@" & formattedStartDate & " - " & formattedEndDate)), " ", "")
+                outputRow = outputRow + 1
+            End If
+        Next i
+    Else
+        
+    '======================= Annual quote processing (annualized to 1-year periods) =======================
+
+    ' 1) Collect unique annualized date pairs across all products
+        Dim billingPeriods As Collection: Set billingPeriods = New Collection
+        Dim dateKeyList As Collection: Set dateKeyList = New Collection
+        
+        Dim iProd As Long, pStartVal As Date, pEndVal As Date
+        Dim segs As Collection, seg As Variant
+        Dim dateKey As String
+        Dim exists As Boolean, j As Long
+        
+        For iProd = headerRow + 1 To endRow
+            If Trim(ws.Cells(iProd, colProductCode).Value) <> "" And _
+               Not IsRepeatedHeader(ws, iProd, headerRow, Array(colProductCode, colQuantity, colStartDate, colEndDate, colListUnitPrice, colNetUnitPrice)) Then
+               
+               ' Robustly read product dates (serials or text)
+               pStartVal = TryDate(ws.Cells(iProd, colStartDate).Value)
+               pEndVal = TryDate(ws.Cells(iProd, colEndDate).Value)
+               If pStartVal = 0 Or pEndVal = 0 Then GoTo NextProductForPeriods
+               
+               ' Split into yearly segments (anniversary to anniversary-1)
+               Set segs = SplitIntoAnnualPeriods(pStartVal, pEndVal)
+               For Each seg In segs
+                   dateKey = Format(seg(0), "mm/dd/yyyy") & "|" & Format(seg(1), "mm/dd/yyyy")
+                   
+                   exists = False
+                   On Error Resume Next
+                   For j = 1 To dateKeyList.Count
+                       If dateKeyList(j) = dateKey Then
+                           exists = True
+                           Exit For
+                       End If
+                   Next j
+                   On Error GoTo 0
+                   
+                   If Not exists Then
+                       dateKeyList.Add dateKey
+                       billingPeriods.Add Array(seg(0), seg(1))
+                   End If
+               Next seg
+            End If
+NextProductForPeriods:
+        Next iProd
+    
+        ' 2) Output grouped by annualized period: outer loop over periods
+        Dim idx As Long: idx = 1
+        Dim item As Variant, arr As Variant
+        Dim periodStart As Date, periodEnd As Date
+        Dim periodStartTxt As String, periodEndTxt As String
+        
+        For Each item In billingPeriods
+            arr = item
+            periodStart = arr(0)
+            periodEnd = arr(1)
+            periodStartTxt = Format(periodStart, "mm/dd/yyyy")
+            periodEndTxt = Format(periodEnd, "mm/dd/yyyy")
+            
+            ' Period heading (optional; keep if you want same as before)
+            outputWs.Cells(outputRow, 1).Value = "Billing Period " & idx
+            outputRow = outputRow + 1
+            idx = idx + 1
+            
+            ' 3) For each product, output one line if it covers this period; copy cost/list as-is (no proration)
+            Dim startDateAnnualValue As Date, endDateAnnualValue As Date
+            Dim costfAnnual As String, msrpfAnnual As String
+            Dim formattedStartDateAnnual As String, formattedEndDateAnnual As String
+            Dim sQty As String
+            
+            For iProd = headerRow + 1 To endRow
+                If Trim(ws.Cells(iProd, colProductCode).Value) <> "" And _
+                   Not IsRepeatedHeader(ws, iProd, headerRow, Array(colProductCode, colQuantity, colStartDate, colEndDate, colListUnitPrice, colNetUnitPrice)) Then
+                   
+                   startDateAnnualValue = TryDate(ws.Cells(iProd, colStartDate).Value)
+                   endDateAnnualValue = TryDate(ws.Cells(iProd, colEndDate).Value)
+                   If startDateAnnualValue = 0 Or endDateAnnualValue = 0 Then GoTo NextProductForOutput
+                   
+                   ' Split this product again, and write line only for the segment that equals the current period
+                   Set segs = SplitIntoAnnualPeriods(startDateAnnualValue, endDateAnnualValue)
+                   For Each seg In segs
+                       If seg(0) = periodStart And seg(1) = periodEnd Then
+                           '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''' fix for et unit split per year
+                           ' ---------- Per-period pricing for ANNUAL quotes ----------
+                            ' Get raw values from the sheet (can be multi-year totals)
+                            Dim rawNetUnit As Double
+                            Dim rawListUnit As Double
+                            rawNetUnit = Val(Replace(Replace(CStr(ws.Cells(iProd, colNetUnitPrice).Value), "$", ""), ",", ""))
+                            rawListUnit = Val(Replace(Replace(CStr(ws.Cells(iProd, colListUnitPrice).Value), "$", ""), ",", ""))
+                            
+                            ' Count how many annual segments this product spans
+                            Dim prodSegs As Collection, seg2 As Variant, segCount As Long
+                            Set prodSegs = SplitIntoAnnualPeriods(startDateAnnualValue, endDateAnnualValue)
+                            segCount = 0
+                            For Each seg2 In prodSegs
+                                segCount = segCount + 1
+                            Next seg2
+                            If segCount = 0 Then segCount = 1 ' safety
+                            
+                            ' Net Unit Price: divide across annual segments (e.g., 72000 / 3 = 24000)
+                            Dim perPeriodNet As Double
+                            perPeriodNet = rawNetUnit / segCount
+                            
+                            ' List Unit Price: KEEP as-is (per your requirement)
+                            Dim perPeriodList As Double
+                            perPeriodList = rawListUnit
+                            
+                            ' Format as strings with 2 decimals
+                            costfAnnual = Format(perPeriodNet, "0.00")
+                            msrpfAnnual = Format(perPeriodList, "0.00")
+                            ' ----------------------------------------------------------
+                           
+                           ' Quantity: for Software table it's present; if blank, default to 1
+                           If colQuantity > 0 Then
+                               sQty = CStr(ws.Cells(iProd, colQuantity).Value)
+                               If Trim$(sQty) = "" Then sQty = "1"
+                           Else
+                               sQty = "1"
+                           End If
+                           
+                           ' @C/E tag for this annual segment
+                           formattedStartDateAnnual = "C:" & Format(seg(0), "yyyymmdd")
+                           formattedEndDateAnnual = "E:" & Format(seg(1), "yyyymmdd")
+                           
+                           outputWs.Cells(outputRow, 1).Value = Replace(Trim$(CStr( _
+                               ws.Cells(iProd, colProductCode).Value & "," & _
+                               sQty & "," & _
+                               "*," & "*," & "*," & "*," & _
+                               costfAnnual & "," & msrpfAnnual & "@" & formattedStartDateAnnual & " - " & formattedEndDateAnnual _
+                           )), " ", "")
+                           outputRow = outputRow + 1
+                       End If
+                   Next seg
+                End If
+NextProductForOutput:
+            Next iProd
+        Next item
+    '======================================================================================================
+
+    
+    End If
+    
+    ' ---- Support section handling: find "Support Pricing Detail" and output lines similarly
+    Dim supportTitleRow As Long
+    supportTitleRow = 0
+    Dim rr As Long
+    ' Search for Support Pricing Detail after the software section endRow
+    For rr = endRow + 1 To ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+        If LCase(Trim(ws.Cells(rr, 1).Value)) = "support pricing detail" Then
+            supportTitleRow = rr
+            Exit For
+        End If
+    Next rr
+
+    If supportTitleRow > 0 Then
+        Dim supportHeaderRow As Long
+        supportHeaderRow = supportTitleRow + 1 ' usually the header is the next row
+
+        ' Try a couple header name variations for start/end date
+        Dim s_colProductCode As Long
+        Dim s_colQuantity As Long
+        Dim s_colStartDate As Long
+        Dim s_colEndDate As Long
+        Dim s_colListUnitPrice As Long
+        Dim s_colNetUnitPrice As Long
+
+        s_colProductCode = FindColumn(ws, supportHeaderRow, "Product Code")
+        s_colQuantity = FindColumn(ws, supportHeaderRow, "Quantity")
+        s_colListUnitPrice = FindColumn(ws, supportHeaderRow, "List Unit Price")
+        s_colNetUnitPrice = FindColumn(ws, supportHeaderRow, "Net Unit Price")
+
+        s_colStartDate = FindColumn(ws, supportHeaderRow, "Start Date (MM-DD-YYYY)")
+        If s_colStartDate = 0 Then s_colStartDate = FindColumn(ws, supportHeaderRow, "Start Date")
+        s_colEndDate = FindColumn(ws, supportHeaderRow, "End Date (MM-DD-YYYY)")
+        If s_colEndDate = 0 Then s_colEndDate = FindColumn(ws, supportHeaderRow, "End Date")
+        If s_colQuantity = 0 Then s_colQuantity = 1 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''debug for support as qty doesnt exist.
+        If s_colProductCode > 0 Then
+            Dim sRow As Long
+            sRow = supportHeaderRow + 1
+            Do While Trim(CStr(ws.Cells(sRow, s_colProductCode).Value)) <> ""
+                If Not IsRepeatedHeader(ws, sRow, supportHeaderRow, Array(s_colProductCode, s_colQuantity, s_colStartDate, s_colEndDate, s_colListUnitPrice, s_colNetUnitPrice)) Then
+                    Dim sStartDate As String
+                    Dim sEndDate As String
+                    Dim sStartDateValue As Date
+                    Dim sEndDateValue As Date
+                    If s_colStartDate > 0 Then
+                        If IsDate(ws.Cells(sRow, s_colStartDate).Value) Then
+                            sStartDate = Format(ws.Cells(sRow, s_colStartDate).Value, "mm/dd/yyyy")
+                            sStartDateValue = ws.Cells(sRow, s_colStartDate).Value
+                        Else
+                            sStartDate = CStr(ws.Cells(sRow, s_colStartDate).Value)
+                            On Error Resume Next
+                            sStartDateValue = CDate(ws.Cells(sRow, s_colStartDate).Value)
+                            On Error GoTo 0
+                        End If
+                    Else
+                        sStartDate = ""
+                        sStartDateValue = 0
+                    End If
+                    If s_colEndDate > 0 Then
+                        If IsDate(ws.Cells(sRow, s_colEndDate).Value) Then
+                            sEndDate = Format(ws.Cells(sRow, s_colEndDate).Value, "mm/dd/yyyy")
+                            sEndDateValue = ws.Cells(sRow, s_colEndDate).Value
+                        Else
+                            sEndDate = CStr(ws.Cells(sRow, s_colEndDate).Value)
+                            On Error Resume Next
+                            sEndDateValue = CDate(ws.Cells(sRow, s_colEndDate).Value)
+                            On Error GoTo 0
+                        End If
+                    Else
+                        sEndDate = ""
+                        sEndDateValue = 0
+                    End If
+
+                    ' For support section, use list price as-is (no proration)
+                    Dim sListVal As Double
+                    Dim sCostVal As Double
+                    sListVal = 0
+                    sCostVal = 0
+                    If s_colListUnitPrice > 0 Then sListVal = Val(Replace(Replace(CStr(ws.Cells(sRow, s_colListUnitPrice).Value), "$", ""), ",", ""))
+                    If s_colNetUnitPrice > 0 Then sCostVal = Val(Replace(Replace(CStr(ws.Cells(sRow, s_colNetUnitPrice).Value), "$", ""), ",", ""))
+
+                    ' Format values and write output
+                    Dim sCostStr As String, sListStr As String
+                    sCostStr = CStr(WorksheetFunction.Round(sCostVal, 2))
+                    sListStr = CStr(WorksheetFunction.Round(sListVal, 2))
+                    If s_colQuantity > 0 Then
+                        sQty = CStr(ws.Cells(sRow, s_colQuantity).Value)
+                        If Trim(sQty) = "" Then sQty = "1"
+                    Else
+                        sQty = "1"
+                    End If
+
+                    ' Format dates as C:YYYYMMDD - E:YYYYMMDD for output
+                    Dim formattedSStartDate As String
+                    Dim formattedSEndDate As String
+                    If sStartDateValue <> 0 Then
+                        formattedSStartDate = "C:" & Format(sStartDateValue, "YYYYMMDD")
+                    Else
+                        formattedSStartDate = ""
+                    End If
+                    If sEndDateValue <> 0 Then
+                        formattedSEndDate = "E:" & Format(sEndDateValue, "YYYYMMDD")
+                    Else
+                        formattedSEndDate = ""
+                    End If
+
+                    outputWs.Cells(outputRow, 1).Value = Replace(Trim(CStr(ws.Cells(sRow, s_colProductCode).Value & "," & _
+                        sQty & "," & _
+                        "*," & "*," & "*," & "*," & _
+                        sCostStr & "," & sListStr & "@" & formattedSStartDate & " - " & formattedSEndDate)), " ", "")
+                    outputRow = outputRow + 1
+                End If
+                sRow = sRow + 1
+            Loop
+        End If
+    End If
+
+    MsgBox "Processing complete. Check the 'Output' sheet.", vbInformation
+End Sub
+
+' --- Drop-in replacement: HasRequiredHeaders ---
+Function HasRequiredHeaders(ws As Worksheet, row As Long) As Boolean
+    ' We intentionally pass the natural-looking targets.
+    ' FindColumn internally normalizes both the cell and the headerName.
+    
+    Dim ok As Boolean
+    ok = (FindColumn(ws, row, "Product Code") > 0) And _
+         (FindColumn(ws, row, "Quantity") > 0) And _
+         (FindColumn(ws, row, "Net Total USD") > 0) And _
+         (FindColumn(ws, row, "List Unit Price") > 0) And _
+         (FindColumn(ws, row, "License Term  End Date" & vbLf & "(MM-DD-YYYY)") > 0) And _
+         (FindColumn(ws, row, "License Term Start Date (MM-DD-YYYY)") > 0)
+
+    HasRequiredHeaders = ok
+    
+    ' Helpful debug output to see what FindColumn resolves to.
+    Debug.Print "---- Header scan (row " & row & ") ----"
+    Debug.Print "License Term  End Date (raw w/ vbLf):", FindColumn(ws, row, "License Term  End Date" & vbLf & "(MM-DD-YYYY)")
+    Debug.Print "License Term Start Date (MM-DD-YYYY):", FindColumn(ws, row, "License Term Start Date (MM-DD-YYYY)")
+    Debug.Print "Product Code:", FindColumn(ws, row, "Product Code")
+    Debug.Print "Quantity:", FindColumn(ws, row, "Quantity")
+    Debug.Print "Net Total USD:", FindColumn(ws, row, "Net Total USD")
+    Debug.Print "List Unit Price:", FindColumn(ws, row, "List Unit Price")
+End Function
+
+
+' --- Drop-in replacement: FindColumn ---
+Function FindColumn(ws As Worksheet, headerRow As Long, headerName As String) As Long
+    Dim lastCol As Long, col As Long
+    Dim target As String, cellText As String
+    
+    ' Normalize the target header once
+    target = CleanHeader(headerName)
+    
+    ' Be resilient: scan to the last used column on the given row
+    lastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+    If lastCol < 1 Then
+        FindColumn = 0
+        Exit Function
+    End If
+    
+    For col = 1 To lastCol
+        ' Read as text; avoid type coercion issues
+        cellText = CStr(ws.Cells(headerRow, col).Value)
+        
+        ' Compare normalized forms
+        If CleanHeader(cellText) = target Then
+            FindColumn = col
+            Exit Function
+        End If
+    Next col
+    
+    ' Not found
+    FindColumn = 0
+End Function
+
+
+' --- Helper: normalize headers for resilient matching ---
+Private Function CleanHeader(ByVal s As String) As String
+    ' 1) Convert to string
+    s = CStr(s)
+    
+    ' 2) Unwrap common delimiters from CSV imports
+    '    Remove leading/trailing quotes and any embedded repeated quotes
+    s = Replace(s, Chr(34) & Chr(34), Chr(34))  ' "" -> "
+    If Left$(s, 1) = Chr(34) And Right$(s, 1) = Chr(34) Then
+        s = Mid$(s, 2, Len(s) - 2)
+    End If
+    
+    ' 3) Normalize line breaks:
+    '    Remove vbCr and replace vbCrLf/vbLf with nothing (collapse label to a single line)
+    s = Replace(s, vbCrLf, vbLf)
+    s = Replace(s, vbCr, vbLf)
+    s = Replace(s, vbLf, "")
+    
+    ' 4) Normalize spaces:
+    '    Convert non-breaking spaces to regular spaces
+    s = Replace(s, ChrW(160), " ")
+    
+    '    Collapse multiple spaces to a single space
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
+    Loop
+    
+    ' 5) Trim
+    s = Trim$(s)
+    
+    ' 6) Optional: make comparison case-insensitive (uncomment if needed)
+    ' s = LCase$(s)
+    
+    CleanHeader = s
+End Function
+
+Function IsRepeatedHeader(ws As Worksheet, row As Long, headerRow As Long, cols As Variant) As Boolean
+    Dim c As Variant
+    On Error Resume Next
+    For Each c In cols
+        If Trim(LCase(ws.Cells(row, c).Value)) = Trim(LCase(ws.Cells(headerRow, c).Value)) Then
+            IsRepeatedHeader = True
+            Exit Function
+        End If
+    Next c
+    On Error GoTo 0
+    IsRepeatedHeader = False
+End Function
