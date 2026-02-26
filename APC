@@ -1,0 +1,462 @@
+Option Explicit
+
+Private Const MARGIN_PCT As Double = 0.03
+Private Const DEC_FMT As String = "#,##0.00"
+Private Const CLEAR_OTHER_NUMERIC_CELLS_IN_SUBTOTAL_ROW As Boolean = True
+
+Sub working()
+    Dim tbl As Table
+    Dim mainTotals As Double, optionalTotals As Double
+    Dim perTableTotal As Double, isOptional As Boolean, isData As Boolean
+    Dim processed As Long
+
+    mainTotals = 0#: optionalTotals = 0#
+
+    For Each tbl In ActiveDocument.Tables
+        If tbl.Range.StoryType = wdMainTextStory Then
+            perTableTotal = ProcessIfDataTable_NetExtOnly(tbl, isOptional, isData)
+            If isData Then
+                If isOptional Then
+                    optionalTotals = optionalTotals + perTableTotal
+                Else
+                    mainTotals = mainTotals + perTableTotal
+                End If
+                processed = processed + 1
+            End If
+        End If
+    Next tbl
+
+    UpdateQuoteTotals mainTotals
+    UpdateOptionalTotals optionalTotals
+    UpdateGrandTotals mainTotals + optionalTotals
+
+    MsgBox "Tables processed: " & processed & vbCrLf & _
+           "Quote/Solution total: " & Format(mainTotals, DEC_FMT) & vbCrLf & _
+           "Optional total:       " & Format(optionalTotals, DEC_FMT) & vbCrLf & _
+           "Grand total:          " & Format(mainTotals + optionalTotals, DEC_FMT), _
+           vbInformation, "Done"
+End Sub
+
+Private Function ProcessIfDataTable_NetExtOnly(ByRef tbl As Table, ByRef isOptional As Boolean, ByRef isData As Boolean) As Double
+    Dim hdrRow As Long
+    Dim cItem As Long, cQty As Long, cProd As Long, cDesc As Long
+    Dim cStart As Long, cNet As Long, cPrice As Long, cExt As Long, cDiscount As Long
+    Dim hasQty As Boolean
+
+    isData = False: isOptional = False
+    ProcessIfDataTable_NetExtOnly = 0#
+
+    If Not FindHeader_MergeSafe(tbl, hdrRow, cItem, cQty, cProd, cDesc, _
+                                cStart, cNet, cPrice, cExt, cDiscount, hasQty, isOptional) Then
+        Exit Function
+    End If
+
+    isData = True
+
+    If cStart > 0 And cStart <= tbl.Columns.Count Then
+        On Error Resume Next
+        tbl.Columns(cStart).Delete
+        If Err.Number <> 0 Then
+            Err.Clear
+            ClearColumn_MergeSafe tbl, cStart
+        Else
+            If cNet > cStart Then cNet = cNet - 1
+            If cPrice > cStart Then cPrice = cPrice - 1
+            If cExt > cStart Then cExt = cExt - 1
+            If cDiscount > cStart Then cDiscount = cDiscount - 1
+        End If
+        On Error GoTo 0
+    End If
+
+    Dim cUnit As Long: cUnit = 0
+    If cNet > 0 Then
+        cUnit = cNet
+    ElseIf cPrice > 0 Then
+        cUnit = cPrice
+    End If
+
+    If cExt = 0 Then
+        Exit Function
+    End If
+
+    Dim r As Long, lastR As Long
+    Dim qty As Double, unitOld As Double, unitNew As Double
+    Dim extOld As Double, extNew As Double
+
+    lastR = tbl.Rows.Count
+    For r = hdrRow + 1 To lastR
+        If Not IsSummaryRow(tbl, r) Then
+            qty = GetRowQty(tbl, r, cQty, hasQty)
+
+            If cUnit > 0 Then
+                unitOld = ParseNum(GetCell(tbl, r, cUnit))
+                If unitOld <> 0 Or qty <> 0 Then
+                    unitNew = Round(unitOld / (1# - MARGIN_PCT), 2)
+                    SetCell tbl, r, cUnit, Format(unitNew, DEC_FMT)
+                    extNew = Round(qty * unitNew, 2)
+                    SetCell tbl, r, cExt, Format(extNew, DEC_FMT)
+                End If
+            Else
+                extOld = ParseNum(GetCell(tbl, r, cExt))
+                If extOld <> 0 Then
+                    extNew = Round(extOld / (1# - MARGIN_PCT), 2)
+                    SetCell tbl, r, cExt, Format(extNew, DEC_FMT)
+                End If
+            End If
+        End If
+    Next r
+
+    Dim sumExt As Double
+    sumExt = SumExtended_MergeSafe(tbl, hdrRow, cQty, hasQty, cUnit, cExt)
+    WriteSubTotalsInPlace tbl, hdrRow, cExt, sumExt
+
+    If hasQty Then AlignRight tbl, cQty
+    If cUnit > 0 Then AlignRight tbl, cUnit
+    AlignRight tbl, cExt
+
+    ProcessIfDataTable_NetExtOnly = sumExt
+End Function
+
+Private Function SumExtended_MergeSafe(ByRef tbl As Table, ByVal hdrRow As Long, _
+                                       ByVal cQty As Long, ByVal hasQty As Boolean, _
+                                       ByVal cUnit As Long, ByVal cExt As Long) As Double
+    Dim r As Long, lastR As Long
+    Dim q As Double, u As Double, e As Double, tot As Double
+
+    lastR = tbl.Rows.Count
+    tot = 0#
+
+    For r = hdrRow + 1 To lastR
+        If Not IsSummaryRow(tbl, r) Then
+            e = ParseNum(GetCell(tbl, r, cExt))
+
+            If e = 0# And cUnit > 0 Then
+                q = GetRowQty(tbl, r, cQty, hasQty)
+                u = ParseNum(GetCell(tbl, r, cUnit))
+                e = Round(q * u, 2)
+            End If
+
+            tot = tot + e
+        End If
+    Next r
+
+    SumExtended_MergeSafe = tot
+End Function
+
+Private Sub WriteSubTotalsInPlace(ByRef tbl As Table, ByVal hdrRow As Long, ByVal cExt As Long, ByVal sumExt As Double)
+    Dim r As Long, lastR As Long, label As String
+    Dim writeCol As Long, valTxt As String
+    valTxt = Format(sumExt, DEC_FMT)
+
+    lastR = tbl.Rows.Count
+
+    For r = hdrRow + 1 To lastR
+        label = UCase$(GetCell(tbl, r, 1))
+        If (InStr(label, "SUB TOTAL") > 0 Or InStr(label, "SUBTOTAL") > 0) Then
+            writeCol = BestWriteColumnForRow(tbl, hdrRow, r, cExt)
+
+            If CLEAR_OTHER_NUMERIC_CELLS_IN_SUBTOTAL_ROW Then
+                ClearOtherNumericCellsInRow tbl, r, writeCol, hdrRow
+            End If
+
+            If Not TrySetCell(tbl, r, writeCol, valTxt) Then
+                Dim c As Long, leftBound As Long
+                leftBound = 2
+                For c = writeCol To leftBound Step -1
+                    If TrySetCell(tbl, r, c, valTxt) Then Exit For
+                Next c
+            End If
+        End If
+    Next r
+End Sub
+
+Private Function BestWriteColumnForRow(ByRef tbl As Table, ByVal hdrRow As Long, ByVal r As Long, ByVal preferredCol As Long) As Long
+    Dim hdrMax As Long, rowMax As Long, upper As Long, c As Long
+    hdrMax = MaxAddressableColInRow(tbl, hdrRow)
+    rowMax = MaxAddressableColInRow(tbl, r)
+    upper = IIf(rowMax < hdrMax, rowMax, hdrMax)
+
+    If preferredCol > 0 And preferredCol <= upper Then
+        If CanAddress(tbl, r, preferredCol) Then
+            BestWriteColumnForRow = preferredCol
+            Exit Function
+        End If
+    End If
+
+    For c = upper To 2 Step -1
+        If CanAddress(tbl, r, c) Then
+            BestWriteColumnForRow = c
+            Exit Function
+        End If
+    Next c
+
+    BestWriteColumnForRow = IIf(hdrMax > 1, hdrMax, 2)
+End Function
+
+Private Sub ClearOtherNumericCellsInRow(ByRef tbl As Table, ByVal r As Long, ByVal keepCol As Long, ByVal hdrRow As Long)
+    Dim hdrMax As Long, rowMax As Long, upper As Long, c As Long
+    Dim t As String, v As Double
+
+    hdrMax = MaxAddressableColInRow(tbl, hdrRow)
+    rowMax = MaxAddressableColInRow(tbl, r)
+    upper = IIf(rowMax < hdrMax, rowMax, hdrMax)
+
+    For c = 2 To upper
+        If c <> keepCol Then
+            t = GetCell(tbl, r, c)
+            If LooksNumeric(t) Then
+                SetCell tbl, r, c, ""
+            End If
+        End If
+    Next c
+End Sub
+
+Private Function LooksNumeric(ByVal s As String) As Boolean
+    Dim i As Long, ch As String
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If (ch >= "0" And ch <= "9") Or ch = "." Or ch = "-" Then
+            LooksNumeric = True
+            Exit Function
+        End If
+    Next i
+    LooksNumeric = False
+End Function
+
+Private Sub UpdateQuoteTotals(ByVal mainTotal As Double)
+    WriteTotalsByLabel Format(mainTotal, DEC_FMT), Array("QUOTE TOTAL", "QUOTE TOTAL (USD)", "SOLUTION TOTAL")
+End Sub
+
+Private Sub UpdateOptionalTotals(ByVal optTotal As Double)
+    WriteTotalsByLabel Format(optTotal, DEC_FMT), Array("OPTIONAL ITEMS TOTAL", "OPTIONAL TOTAL", "OPTIONAL ITEMS TOTAL (USD)")
+End Sub
+
+Private Sub UpdateGrandTotals(ByVal grandTotal As Double)
+    WriteTotalsByLabel Format(grandTotal, DEC_FMT), Array("GRAND TOTAL", "GRAND TOTAL (USD)")
+End Sub
+
+Private Sub WriteTotalsByLabel(ByVal valueText As String, ByVal labels As Variant)
+    Dim tbl As Table, r As Long, lab As String, i As Long
+    Dim writeCol As Long
+    For Each tbl In ActiveDocument.Tables
+        If tbl.Range.StoryType = wdMainTextStory Then
+            For r = 1 To tbl.Rows.Count
+                lab = UCase$(GetCell(tbl, r, 1))
+                For i = LBound(labels) To UBound(labels)
+                    If lab Like "*" & UCase$(labels(i)) & "*" Then
+                        writeCol = MaxAddressableColInRow(tbl, r)
+                        If Not TrySetCell(tbl, r, writeCol, valueText) Then
+                            TrySetCell tbl, r, 2, valueText
+                        End If
+                        Exit For
+                    End If
+                Next i
+            Next r
+        End If
+    Next tbl
+End Sub
+
+Private Function FindHeader_MergeSafe(ByRef tbl As Table, ByRef hdrRow As Long, _
+    ByRef cItem As Long, ByRef cQty As Long, ByRef cProd As Long, _
+    ByRef cDesc As Long, ByRef cStart As Long, ByRef cNet As Long, _
+    ByRef cPrice As Long, ByRef cExt As Long, ByRef cDiscount As Long, _
+    ByRef hasQty As Boolean, ByRef isOptional As Boolean) As Boolean
+
+    Dim r As Long, c As Long, raw As String, s As String, sFlat As String
+    Dim maxR As Long, sawOptional As Boolean
+
+    maxR = IIf(tbl.Rows.Count < 8, tbl.Rows.Count, 8)
+    hdrRow = 0: sawOptional = False
+
+    For r = 1 To maxR
+        cItem = 0: cQty = 0: cProd = 0: cDesc = 0
+        cStart = 0: cNet = 0: cPrice = 0: cExt = 0: cDiscount = 0
+
+        For c = 1 To tbl.Columns.Count
+            raw = GetCell(tbl, r, c)
+            If raw <> "" Then
+                If InStr(UCase$(raw), "OPTIONAL ITEMS") > 0 Then sawOptional = True
+
+                s = NormalizeHeader(raw)
+                sFlat = UCase$(Replace(s, " ", ""))
+
+                Select Case UCase$(s)
+                    Case "ITEM NO":                      If cItem = 0 Then cItem = c
+                    Case "ITEMNO":                       If cItem = 0 Then cItem = c
+                    Case "QTY", "QTY.":                  If cQty = 0 Then cQty = c
+                    Case "PRODUCT":                      If cProd = 0 Then cProd = c
+                    Case "DESCRIPTION":                  If cDesc = 0 Then cDesc = c
+                    Case "START PRICE/UNIT", "START PRICE UNIT", "STARTPRICEUNIT"
+                        If cStart = 0 Then cStart = c
+                    Case "NET PRICE/UNIT", "NET PRICE", "NETPRICEUNIT", "NETPRICE"
+                        If cNet = 0 Then cNet = c
+                    Case "PRICE", "UNIT PRICE"
+                        If cPrice = 0 Then cPrice = c
+                    Case "EXTENDED PRICE", "EXTPRICE", "EXTENDEDPRICE", _
+                         "EXT", "EXTENDED", "TOTAL"
+                        If cExt = 0 Then cExt = c
+                    Case "DISCOUNT", "DISCOUNT %", "DISCOUNT AMOUNT", "DISC", "DISC%"
+                        If cDiscount = 0 Then cDiscount = c
+                End Select
+
+                Select Case sFlat
+                    Case "ITEMNO":                       If cItem = 0 Then cItem = c
+                    Case "QTY":                          If cQty = 0 Then cQty = c
+                    Case "PRODUCT":                      If cProd = 0 Then cProd = c
+                    Case "DESCRIPTION":                  If cDesc = 0 Then cDesc = c
+                    Case "STARTPRICEUNIT", "STARTPRICE"
+                        If cStart = 0 Then cStart = c
+                    Case "NETPRICEUNIT", "NETPRICE", "UNITPRICE"
+                        If cNet = 0 And cPrice = 0 Then cNet = c
+                    Case "PRICEUNIT", "PRICE"
+                        If cPrice = 0 Then cPrice = c
+                    Case "EXTENDEDPRICE", "EXTPRICE", "EXTENDED", "EXT", "TOTAL"
+                        If cExt = 0 Then cExt = c
+                    Case "DISCOUNT", "DISCOUNT%", "DISCOUNTAMOUNT", "DISC", "DISC%"
+                        If cDiscount = 0 Then cDiscount = c
+                End Select
+            End If
+        Next c
+
+        If cExt > 0 And (cNet > 0 Or cPrice > 0 Or cStart > 0 Or cExt > 0) Then
+            hdrRow = r
+            hasQty = (cQty > 0)
+            isOptional = sawOptional
+            FindHeader_MergeSafe = True
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Function NormalizeHeader(ByVal s As String) As String
+    s = Replace(s, vbTab, " ")
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+    s = Replace(s, Chr(11), " ")
+
+    s = Replace(s, " / ", "/")
+    s = Replace(s, " /", "/")
+    s = Replace(s, "/ ", "/")
+
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
+    Loop
+
+    s = Replace(s, ".", "")
+
+    NormalizeHeader = Trim$(UCase$(s))
+End Function
+
+Private Function BestWriteColumnInGrid(ByRef tbl As Table, ByVal hdrRow As Long, ByVal preferredCol As Long) As Long
+    Dim maxGridCol As Long
+    maxGridCol = MaxAddressableColInRow(tbl, hdrRow)
+    If preferredCol > 0 And preferredCol <= maxGridCol Then
+        BestWriteColumnInGrid = preferredCol
+    Else
+        BestWriteColumnInGrid = IIf(maxGridCol > 1, maxGridCol, 2)
+    End If
+End Function
+
+Private Function MaxAddressableColInRow(ByRef tbl As Table, ByVal r As Long) As Long
+    Dim c As Long, lastOk As Long
+    lastOk = 0
+    For c = 1 To tbl.Columns.Count
+        If CanAddress(tbl, r, c) Then lastOk = c
+    Next c
+    MaxAddressableColInRow = IIf(lastOk = 0, 1, lastOk)
+End Function
+
+Private Function CanAddress(ByRef tbl As Table, ByVal r As Long, ByVal c As Long) As Boolean
+    Dim tmp As String
+    On Error Resume Next
+    tmp = tbl.Cell(r, c).Range.Text
+    CanAddress = (Err.Number = 0)
+    If Err.Number <> 0 Then Err.Clear
+    On Error GoTo 0
+End Function
+
+Private Function TrySetCell(ByRef tbl As Table, ByVal r As Long, ByVal c As Long, ByVal textVal As String) As Boolean
+    On Error Resume Next
+    tbl.Cell(r, c).Range.Text = textVal
+    TrySetCell = (Err.Number = 0)
+    If Err.Number <> 0 Then Err.Clear
+    On Error GoTo 0
+End Function
+
+Private Function GetCell(ByRef tbl As Table, ByVal r As Long, ByVal c As Long) As String
+    Dim t As String
+    On Error Resume Next
+    t = tbl.Cell(r, c).Range.Text
+    If Err.Number <> 0 Then
+        Err.Clear
+        GetCell = ""
+        Exit Function
+    End If
+    On Error GoTo 0
+    If Len(t) >= 2 Then t = Left$(t, Len(t) - 2)
+    GetCell = Trim$(t)
+End Function
+
+Private Sub SetCell(ByRef tbl As Table, ByVal r As Long, ByVal c As Long, ByVal val As String)
+    On Error Resume Next
+    tbl.Cell(r, c).Range.Text = val
+    If Err.Number <> 0 Then Err.Clear
+    On Error GoTo 0
+End Sub
+
+Private Sub ClearColumn_MergeSafe(ByRef tbl As Table, ByVal c As Long)
+    Dim r As Long
+    If c <= 0 Then Exit Sub
+    For r = 1 To tbl.Rows.Count
+        On Error Resume Next
+        tbl.Cell(r, c).Range.Text = ""
+        If Err.Number <> 0 Then Err.Clear
+        On Error GoTo 0
+    Next r
+End Sub
+
+Private Sub AlignRight(ByRef tbl As Table, ByVal c As Long)
+    If c <= 0 Then Exit Sub
+    Dim r As Long
+    For r = 1 To tbl.Rows.Count
+        On Error Resume Next
+        tbl.Cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
+        If Err.Number <> 0 Then Err.Clear
+        On Error GoTo 0
+    Next r
+End Sub
+
+Private Function GetRowQty(ByRef tbl As Table, ByVal r As Long, ByVal cQty As Long, ByVal hasQty As Boolean) As Double
+    If Not hasQty Or cQty <= 0 Then
+        GetRowQty = 1#
+    Else
+        GetRowQty = ParseNum(GetCell(tbl, r, cQty))
+        If GetRowQty = 0# Then GetRowQty = 1#
+    End If
+End Function
+
+Private Function ParseNum(ByVal s As String) As Double
+    Dim t As String, i As Long, ch As String
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If (ch >= "0" And ch <= "9") Or ch = "." Or ch = "-" Then t = t & ch
+    Next i
+    If t = "" Then
+        ParseNum = 0#
+    Else
+        On Error Resume Next
+        ParseNum = CDbl(t)
+        If Err.Number <> 0 Then ParseNum = 0#
+        Err.Clear
+        On Error GoTo 0
+    End If
+End Function
+
+Private Function IsSummaryRow(ByRef tbl As Table, ByVal r As Long) As Boolean
+    Dim x As String
+    x = UCase$(GetCell(tbl, r, 1))
+    IsSummaryRow = (InStr(x, "SUB TOTAL") > 0 Or InStr(x, "SUBTOTAL") > 0 _
+                 Or InStr(x, "SOLUTION TOTAL") > 0 Or InStr(x, "QUOTE TOTAL") > 0 _
+                 Or InStr(x, "OPTIONAL ITEMS TOTAL") > 0 Or InStr(x, "OPTIONAL TOTAL") > 0 _
+                 Or InStr(x, "GRAND TOTAL") > 0)
+End Function
